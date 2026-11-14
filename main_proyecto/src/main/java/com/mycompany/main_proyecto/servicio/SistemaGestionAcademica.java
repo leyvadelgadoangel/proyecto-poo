@@ -2,8 +2,9 @@ package com.mycompany.main_proyecto.servicio;
 
 import com.mycompany.main_proyecto.excepciones.SistemaAsistenciaException;
 import com.mycompany.main_proyecto.modelo.*;
-import com.mycompany.main_proyecto.persistencia.GestorArchivos;
+import com.mycompany.main_proyecto.persistencia.*;
 
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +18,16 @@ public class SistemaGestionAcademica {
     private List<SesionClase> sesiones;
     private List<Asistencia> asistencias;
 
+    // DAOs de SQL Server (Patrón DAO + Singleton JDBC)
+    private EstudianteDAO estudianteDAO;
+    private DocenteDAO docenteDAO;
+    private CursoDAO cursoDAO;
+    private MatriculaDAO matriculaDAO;
+    private SesionClaseDAO sesionDAO;
+    private AsistenciaDAO asistenciaDAO;
+    private boolean modoSQLServer = false;
+
+    // Respaldo local binario (.dat) en caso no haya conexión activa a SQL Server
     private final GestorArchivos<Estudiante> repoEstudiantes = new GestorArchivos<>("estudiantes.dat");
     private final GestorArchivos<Docente> repoDocentes = new GestorArchivos<>("docentes.dat");
     private final GestorArchivos<Curso> repoCursos = new GestorArchivos<>("cursos.dat");
@@ -25,6 +36,20 @@ public class SistemaGestionAcademica {
     private final GestorArchivos<Asistencia> repoAsistencias = new GestorArchivos<>("asistencias.dat");
 
     public SistemaGestionAcademica() {
+        try {
+            estudianteDAO = new EstudianteDAO();
+            docenteDAO = new DocenteDAO();
+            cursoDAO = new CursoDAO();
+            matriculaDAO = new MatriculaDAO();
+            sesionDAO = new SesionClaseDAO();
+            asistenciaDAO = new AsistenciaDAO();
+            modoSQLServer = true;
+            System.out.println("[BD] Conectado exitosamente a SQL Server (BDAsistenciaAcademica).");
+        } catch (SQLException e) {
+            modoSQLServer = false;
+            System.out.println("[AVISO] SQL Server no disponible (" + e.getMessage() + "). Usando respaldo local .dat.");
+        }
+
         cargarTodo();
         if (estudiantes.isEmpty() && docentes.isEmpty()) {
             cargarDatosPrueba();
@@ -32,6 +57,19 @@ public class SistemaGestionAcademica {
     }
 
     private void cargarTodo() {
+        if (modoSQLServer) {
+            try {
+                estudiantes = estudianteDAO.listar();
+                docentes = docenteDAO.listar();
+                cursos = cursoDAO.listar();
+                matriculas = matriculaDAO.listar(estudiantes, cursos);
+                sesiones = sesionDAO.listar(cursos);
+                asistencias = asistenciaDAO.listar(sesiones, estudiantes);
+                return;
+            } catch (SQLException e) {
+                System.err.println("Error al leer desde SQL Server: " + e.getMessage());
+            }
+        }
         estudiantes = repoEstudiantes.cargarLista();
         docentes = repoDocentes.cargarLista();
         cursos = repoCursos.cargarLista();
@@ -40,7 +78,7 @@ public class SistemaGestionAcademica {
         asistencias = repoAsistencias.cargarLista();
     }
 
-    public void guardarTodo() {
+    public void guardarRespaldoLocal() {
         repoEstudiantes.guardarLista(estudiantes);
         repoDocentes.guardarLista(docentes);
         repoCursos.guardarLista(cursos);
@@ -54,8 +92,16 @@ public class SistemaGestionAcademica {
         boolean existe = estudiantes.stream()
                 .anyMatch(e -> e.getCodigoUniversitario().equalsIgnoreCase(est.getCodigoUniversitario()));
         if (existe) throw new SistemaAsistenciaException("Ya existe un estudiante con el código " + est.getCodigoUniversitario());
+
+        if (modoSQLServer) {
+            try {
+                estudianteDAO.crear(est);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al registrar estudiante: " + e.getMessage());
+            }
+        }
         estudiantes.add(est);
-        guardarTodo();
+        guardarRespaldoLocal();
     }
 
     public Optional<Estudiante> buscarEstudiante(String codigo) {
@@ -68,13 +114,30 @@ public class SistemaGestionAcademica {
         Estudiante est = buscarEstudiante(codigo)
                 .orElseThrow(() -> new SistemaAsistenciaException("Estudiante no encontrado."));
         est.actualizarDatos(nombres, apellidos, correo);
-        guardarTodo();
+
+        if (modoSQLServer) {
+            try {
+                estudianteDAO.actualizar(est);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al actualizar estudiante: " + e.getMessage());
+            }
+        }
+        guardarRespaldoLocal();
     }
 
     public void eliminarEstudiante(String codigo) throws SistemaAsistenciaException {
-        boolean eliminado = estudiantes.removeIf(e -> e.getCodigoUniversitario().equalsIgnoreCase(codigo));
-        if (!eliminado) throw new SistemaAsistenciaException("No se encontró el estudiante a eliminar.");
-        guardarTodo();
+        boolean existe = estudiantes.stream().anyMatch(e -> e.getCodigoUniversitario().equalsIgnoreCase(codigo));
+        if (!existe) throw new SistemaAsistenciaException("No se encontró el estudiante a eliminar.");
+
+        if (modoSQLServer) {
+            try {
+                estudianteDAO.eliminar(codigo);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al eliminar estudiante: " + e.getMessage());
+            }
+        }
+        estudiantes.removeIf(e -> e.getCodigoUniversitario().equalsIgnoreCase(codigo));
+        guardarRespaldoLocal();
     }
 
     public List<Estudiante> listarEstudiantes() { return estudiantes; }
@@ -84,8 +147,16 @@ public class SistemaGestionAcademica {
         boolean existe = docentes.stream()
                 .anyMatch(d -> d.getCodigoDocente().equalsIgnoreCase(doc.getCodigoDocente()));
         if (existe) throw new SistemaAsistenciaException("Ya existe un docente con el código " + doc.getCodigoDocente());
+
+        if (modoSQLServer) {
+            try {
+                docenteDAO.crear(doc);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al registrar docente: " + e.getMessage());
+            }
+        }
         docentes.add(doc);
-        guardarTodo();
+        guardarRespaldoLocal();
     }
 
     public Optional<Docente> buscarDocente(String codigo) {
@@ -98,13 +169,30 @@ public class SistemaGestionAcademica {
         Docente doc = buscarDocente(codigo)
                 .orElseThrow(() -> new SistemaAsistenciaException("Docente no encontrado."));
         doc.actualizarDatos(nombres, apellidos, correo);
-        guardarTodo();
+
+        if (modoSQLServer) {
+            try {
+                docenteDAO.actualizar(doc);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al actualizar docente: " + e.getMessage());
+            }
+        }
+        guardarRespaldoLocal();
     }
 
     public void eliminarDocente(String codigo) throws SistemaAsistenciaException {
-        boolean eliminado = docentes.removeIf(d -> d.getCodigoDocente().equalsIgnoreCase(codigo));
-        if (!eliminado) throw new SistemaAsistenciaException("No se encontró el docente a eliminar.");
-        guardarTodo();
+        boolean existe = docentes.stream().anyMatch(d -> d.getCodigoDocente().equalsIgnoreCase(codigo));
+        if (!existe) throw new SistemaAsistenciaException("No se encontró el docente a eliminar.");
+
+        if (modoSQLServer) {
+            try {
+                docenteDAO.eliminar(codigo);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al eliminar docente: " + e.getMessage());
+            }
+        }
+        docentes.removeIf(d -> d.getCodigoDocente().equalsIgnoreCase(codigo));
+        guardarRespaldoLocal();
     }
 
     public List<Docente> listarDocentes() { return docentes; }
@@ -115,8 +203,17 @@ public class SistemaGestionAcademica {
         if (existe) throw new SistemaAsistenciaException("El código de curso ya existe.");
         Docente docente = buscarDocente(codigoDocente)
                 .orElseThrow(() -> new SistemaAsistenciaException("El docente asignado no existe."));
-        cursos.add(new Curso(codigoCurso, nombreCurso, docente));
-        guardarTodo();
+
+        Curso nuevoCurso = new Curso(codigoCurso, nombreCurso, docente);
+        if (modoSQLServer) {
+            try {
+                cursoDAO.crear(nuevoCurso);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al registrar curso: " + e.getMessage());
+            }
+        }
+        cursos.add(nuevoCurso);
+        guardarRespaldoLocal();
     }
 
     public Optional<Curso> buscarCurso(String codigo) {
@@ -137,8 +234,16 @@ public class SistemaGestionAcademica {
                         && m.getCurso().getCodigoCurso().equalsIgnoreCase(codCurso));
         if (yaMatriculado) throw new SistemaAsistenciaException("El estudiante ya está matriculado en este curso.");
 
-        matriculas.add(new Matricula(est, cur, LocalDate.now()));
-        guardarTodo();
+        Matricula nuevaMat = new Matricula(est, cur, LocalDate.now());
+        if (modoSQLServer) {
+            try {
+                matriculaDAO.crear(nuevaMat);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al matricular estudiante: " + e.getMessage());
+            }
+        }
+        matriculas.add(nuevaMat);
+        guardarRespaldoLocal();
     }
 
     public List<Estudiante> obtenerEstudiantesPorCurso(String codCurso) {
@@ -156,8 +261,15 @@ public class SistemaGestionAcademica {
                 .orElseThrow(() -> new SistemaAsistenciaException("Curso no encontrado."));
 
         SesionClase sesion = new SesionClase(idSesion, cur, fecha);
+        if (modoSQLServer) {
+            try {
+                sesionDAO.crear(sesion);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al crear sesión: " + e.getMessage());
+            }
+        }
         sesiones.add(sesion);
-        guardarTodo();
+        guardarRespaldoLocal();
         return sesion;
     }
 
@@ -189,8 +301,17 @@ public class SistemaGestionAcademica {
         }
 
         String idAsis = "ASIS-" + (asistencias.size() + 1);
-        asistencias.add(new Asistencia(idAsis, sesion, est, estado));
-        guardarTodo();
+        Asistencia nuevaAsis = new Asistencia(idAsis, sesion, est, estado);
+
+        if (modoSQLServer) {
+            try {
+                asistenciaDAO.registrar(nuevaAsis);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al registrar asistencia: " + e.getMessage());
+            }
+        }
+        asistencias.add(nuevaAsis);
+        guardarRespaldoLocal();
     }
 
     // H) Modificación de asistencia
@@ -201,8 +322,15 @@ public class SistemaGestionAcademica {
                 .findFirst()
                 .orElseThrow(() -> new SistemaAsistenciaException("No se encontró registro de asistencia para modificar."));
 
+        if (modoSQLServer) {
+            try {
+                asistenciaDAO.modificar(idSesion, codEstudiante, nuevoEstado);
+            } catch (SQLException e) {
+                throw new SistemaAsistenciaException("Error SQL al modificar asistencia: " + e.getMessage());
+            }
+        }
         registro.setEstado(nuevoEstado);
-        guardarTodo();
+        guardarRespaldoLocal();
     }
 
     // I) Reportes y estadísticas con Streams y Lambdas

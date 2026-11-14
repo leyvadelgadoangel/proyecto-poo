@@ -1,0 +1,12 @@
+com\mycompany\main_proyecto\persistencia\GestorArchivos.class
+com\mycompany\main_proyecto\modelo\Persona.class
+com\mycompany\main_proyecto\modelo\SesionClase.class
+com\mycompany\main_proyecto\modelo\Curso.class
+com\mycompany\main_proyecto\modelo\Matricula.class
+com\mycompany\main_proyecto\servicio\SistemaGestionAcademica.class
+com\mycompany\main_proyecto\excepciones\SistemaAsistenciaException.class
+com\mycompany\main_proyecto\Main_proyecto.class
+com\mycompany\main_proyecto\modelo\Estudiante.class
+com\mycompany\main_proyecto\modelo\Asistencia.class
+com\mycompany\main_proyecto\modelo\Docente.class
+com\mycompany\main_proyecto\modelo\EstadoAsistencia.class
